@@ -128,7 +128,7 @@ async def action(payload, row):
     if not isinstance(original_channel, discord.TextChannel):
         return
 
-    guild_config = config["guilds"].get(original_channel.guild.id)
+    guild_config = config["guilds"][original_channel.guild.id]
     if guild_config is None:
         return
 
@@ -157,11 +157,11 @@ async def action(payload, row):
 
                 await message.edit(content=content, embed=embed)
             else:
-                await message.delete()
                 cursor.execute(
                     """DELETE FROM stars WHERE original_id=?""",
                     (payload.message_id,),
                 )
+                await message.delete()
         except discord.errors.NotFound:
             cursor.execute(
                 """DELETE FROM stars WHERE original_id=?""", (payload.message_id,)

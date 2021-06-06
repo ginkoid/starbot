@@ -6,15 +6,15 @@ import discord
 DEFAULT_EMOJIS = ["\N{WHITE MEDIUM STAR}"]
 DEFAULT_THRESHOLD = 3
 
-bot = discord.Client(
-    intents=discord.Intents(guilds=True, guild_messages=True, guild_reactions=True)
-)
+with open("config.yaml") as conf_file:
+    config = yaml.safe_load(conf_file)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("bot")
 
-with open("config.yaml") as conf_file:
-    config = yaml.safe_load(conf_file)
+bot = discord.Client(
+    intents=discord.Intents(guilds=True, guild_messages=True, guild_reactions=True)
+)
 
 database = sqlite3.connect("stars.sqlite3")
 
@@ -35,10 +35,7 @@ def start_bot():
 
 
 def star_gradient_color(stars):
-    p = stars / 13
-    if p > 1.0:
-        p = 1.0
-
+    p = min(stars / 13, 1)
     red = 255
     green = int((194 * p) + (253 * (1 - p)))
     blue = int((12 * p) + (247 * (1 - p)))
@@ -46,19 +43,16 @@ def star_gradient_color(stars):
 
 
 def get_emoji_message(message, stars):
-    if 5 > stars >= 0:
-        emoji = "\N{WHITE MEDIUM STAR}"
-    elif 10 > stars >= 5:
-        emoji = "\N{GLOWING STAR}"
-    elif 25 > stars >= 10:
-        emoji = "\N{DIZZY SYMBOL}"
-    else:
+    if stars >= 25:
         emoji = "\N{SPARKLES}"
-
-    if stars > 1:
-        content = f"{emoji} **{stars}** {message.channel.mention}"
+    elif stars >= 10:
+        emoji = "\N{DIZZY SYMBOL}"
+    elif stars >= 5:
+        emoji = "\N{GLOWING STAR}"
     else:
-        content = f"{emoji} {message.channel.mention}"
+        emoji = "\N{WHITE MEDIUM STAR}"
+
+    content = f"{emoji} **{stars}** {message.channel.mention}"
 
     embed = discord.Embed(
         description=f"{message.content}\n\n[Jump to original message](https://discord.com/channels/{message.channel.guild.id}/{message.channel.id}/{message.id})"
@@ -85,7 +79,7 @@ def get_emoji_message(message, stars):
         icon_url=message.author.avatar_url_as(format="png"),
     )
     embed.timestamp = message.created_at
-    embed.colour = star_gradient_color(stars)
+    embed.color = star_gradient_color(stars)
     return content, embed
 
 
@@ -191,30 +185,31 @@ async def on_ready():
     log.info(f"Connected to Discord as {bot.user}")
 
 
-@bot.event
-async def on_raw_message_delete(payload):
+async def handle_message_change(payload):
     row = get_star_row(payload.message_id)
     if row is None:
         return
     await action(payload, row)
+
+
+@bot.event
+async def on_raw_message_delete(payload):
+    await handle_message_change(payload)
 
 
 @bot.event
 async def on_raw_message_edit(payload):
-    row = get_star_row(payload.message_id)
-    if row is None:
-        return
-    await action(payload, row)
-
-
-@bot.event
-async def on_raw_reaction_add(payload):
-    if payload.emoji.name in get_star_emojis(payload.guild_id):
-        await action(payload, get_star_row(payload.message_id))
+    await handle_message_change(payload)
 
 
 @bot.event
 async def on_raw_reaction_clear(payload):
+    await handle_message_change(payload)
+
+
+async def handle_reaction_remove(payload):
+    if payload.emoji.name not in get_star_emojis(payload.guild_id):
+        return
     row = get_star_row(payload.message_id)
     if row is None:
         return
@@ -223,22 +218,18 @@ async def on_raw_reaction_clear(payload):
 
 @bot.event
 async def on_raw_reaction_clear_emoji(payload):
-    if payload.emoji.name not in get_star_emojis(payload.guild_id):
-        return
-    row = get_star_row(payload.message_id)
-    if row is None:
-        return
-    await action(payload, row)
+    await handle_reaction_remove(payload)
 
 
 @bot.event
 async def on_raw_reaction_remove(payload):
-    if payload.emoji.name not in get_star_emojis(payload.guild_id):
-        return
-    row = get_star_row(payload.message_id)
-    if row is None:
-        return
-    await action(payload, row)
+    await handle_reaction_remove(payload)
+
+
+@bot.event
+async def on_raw_reaction_add(payload):
+    if payload.emoji.name in get_star_emojis(payload.guild_id):
+        await action(payload, get_star_row(payload.message_id))
 
 
 if __name__ == "__main__":

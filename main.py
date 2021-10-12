@@ -76,7 +76,7 @@ def get_emoji_message(message, stars):
 
     embed.set_author(
         name=message.author.display_name,
-        icon_url=message.author.avatar_url_as(format="png"),
+        icon_url=message.author.display_avatar,
     )
     embed.timestamp = message.created_at
     embed.color = star_gradient_color(stars)
@@ -94,13 +94,19 @@ def get_star_row(original_id):
     return row
 
 
-def get_starboard_id(original_channel):
-    guild_config = config["guilds"][original_channel.guild.id]
+def get_starboard_id(channel):
+    guild_config = config["guilds"][channel.guild.id]
     overrides = guild_config.get("starboard_overrides", {})
     default = guild_config["starboard_default"]
+    if isinstance(channel, discord.threads.Thread):
+        return (
+            overrides.get(channel.parent_id)
+            or (channel.parent and overrides.get(channel.category_id))
+            or default
+        )
     return (
-        overrides.get(original_channel.id)
-        or overrides.get(original_channel.category_id)
+        overrides.get(channel.id)
+        or overrides.get(channel.category_id)
         or default
     )
 
@@ -119,13 +125,8 @@ def get_star_emojis(guild_id):
 
 async def action(payload, row):
     original_channel = bot.get_channel(payload.channel_id)
-    if not isinstance(original_channel, discord.TextChannel):
-        return
 
     guild_config = config["guilds"][original_channel.guild.id]
-    if guild_config is None:
-        return
-
     threshold = guild_config.get("threshold", DEFAULT_THRESHOLD)
     star_emojis = get_star_emojis(original_channel.guild.id)
 
@@ -228,8 +229,9 @@ async def on_raw_reaction_remove(payload):
 
 @bot.event
 async def on_raw_reaction_add(payload):
-    if payload.emoji.name in get_star_emojis(payload.guild_id):
-        await action(payload, get_star_row(payload.message_id))
+    if payload.emoji.name not in get_star_emojis(payload.guild_id):
+        return
+    await action(payload, get_star_row(payload.message_id))
 
 
 if __name__ == "__main__":
